@@ -1,0 +1,14 @@
+.git
+.gitignore
+.dockerignore
+node_modules
+dist
+coverage
+*.log
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+ASDD_StaySmart_Practical_Manual.html
+ASDD_StaySmart_Practical_Manual.pdf

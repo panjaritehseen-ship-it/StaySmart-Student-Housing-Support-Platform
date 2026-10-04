@@ -1,0 +1,19 @@
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.log
+npm-debug.log*
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
