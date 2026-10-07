@@ -14,67 +14,82 @@ pipeline {
             }
         }
 
-        stage('Validate project') {
+        stage('Environment Check') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    $requiredFiles = @(
-                        'index.html',
-                        'vendor.html',
-                        'admin.html',
-                        'css/style.css',
+                    Write-Output "Checking Node.js installation..."
+
+                    node --version
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Node.js is required for the StaySmart test suite."
+                    }
+
+                    Write-Output "Node.js is available."
+                '''
+            }
+        }
+
+        stage('JavaScript Syntax Tests') {
+            steps {
+                powershell '''
+                    $ErrorActionPreference = 'Stop'
+
+                    $jsFiles = @(
                         'js/data.js',
                         'js/panel.js',
                         'js/app.js',
                         'js/vendor.js',
                         'js/admin.js',
-                        'images/properties/bedroom.jpg'
+                        'tests/staysmart.test.js'
                     )
 
-                    foreach ($file in $requiredFiles) {
-                        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
-                            throw "Required project file is missing: $file"
+                    foreach ($file in $jsFiles) {
+
+                        Write-Output "Testing JavaScript syntax: $file"
+
+                        node --check $file
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "JavaScript syntax test failed: $file"
                         }
                     }
 
-                    $node = Get-Command node -ErrorAction SilentlyContinue
-
-                    if ($node) {
-                        Get-ChildItem -LiteralPath 'js' -Filter '*.js' |
-                            ForEach-Object {
-                                & $node.Source --check $_.FullName
-
-                                if ($LASTEXITCODE -ne 0) {
-                                    throw "JavaScript syntax validation failed: $($_.Name)"
-                                }
-                            }
-
-                        Write-Output 'All JavaScript files passed node --check.'
-                    }
-                    else {
-                        Write-Output 'Node.js is not installed on this Jenkins agent; JavaScript syntax checks were skipped.'
-                    }
-
-                    Write-Output 'Required static site files are present.'
+                    Write-Output "All JavaScript syntax tests passed."
                 '''
             }
         }
 
-        stage('Build/Test') {
+        stage('Application Tests') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    Write-Output 'Running StaySmart CI checks...'
+                    Write-Output ""
+                    Write-Output "========================================"
+                    Write-Output " Running StaySmart Test Suite"
+                    Write-Output "========================================"
+                    Write-Output ""
 
-                    if (Test-Path -LiteralPath 'index.html' -PathType Leaf) {
-                        Write-Output 'index.html validation passed.'
+                    node tests/staysmart.test.js
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "StaySmart automated tests failed."
                     }
-
-                    Write-Output 'StaySmart project validation completed successfully.'
                 '''
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'StaySmart CI: ALL TESTS PASSED'
+        }
+
+        failure {
+            echo 'StaySmart CI: TESTS FAILED'
         }
     }
 }
