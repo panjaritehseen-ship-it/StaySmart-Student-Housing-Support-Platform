@@ -77,15 +77,4 @@ pipeline {
             }
         }
     }
-
-    post {
-        success {
-            Write-Output 'StaySmart CI pipeline completed successfully.'
-        }
-
-        failure {
-            Write-Output 'StaySmart CI pipeline failed. Check the console output.'
-        }
-    }
-}
 }
