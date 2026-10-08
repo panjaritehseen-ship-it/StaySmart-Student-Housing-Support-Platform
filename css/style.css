@@ -228,13 +228,13 @@ body.vendor .booking-item:hover{box-shadow: 0 5px 15px rgba(0,0,0,0.1);}
 body.vendor .booking-header{display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;}
 body.vendor .booking-student h5{margin: 0; color: #333;}
 body.vendor .booking-student small{color: #666;}
-body.vendor .booking-status{padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;}
-body.vendor .status-pending{background: #fff3cd; color: #856404;}
-body.vendor .status-approved{background: #d4edda; color: #155724;}
-body.vendor .status-rejected{background: #f8d7da; color: #721c24;}
-body.vendor .status-cancelled{background: #e2e3e5; color: #383d41;}
-body.vendor .status-active{background: #cce5ff; color: #004085;}
-body.vendor .status-completed{background: #d1e7dd; color: #0a3622;}
+.booking-status{display:inline-flex;align-items:center;justify-content:center;padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; line-height: 1.2;}
+.status-pending{background: #fff3cd; color: #856404;}
+.status-approved{background: #d4edda; color: #155724;}
+.status-rejected{background: #f8d7da; color: #721c24;}
+.status-cancelled{background: #e2e3e5; color: #383d41;}
+.status-active{background: #cce5ff; color: #004085;}
+.status-completed{background: #d1e7dd; color: #0a3622;}
 body.vendor .booking-details{display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px;}
 body.vendor .detail-item{display: flex; align-items: center; gap: 8px; color: #555; font-size: 14px;}
 body.vendor .detail-item i{width: 20px; color: #0066CC;}
