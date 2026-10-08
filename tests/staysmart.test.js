@@ -24,6 +24,26 @@ function read(file) {
     return fs.readFileSync(path.join(ROOT, file), 'utf8');
 }
 
+function loadPanel() {
+    const values = new Map();
+    const context = {
+        window: { SEED: seed },
+        localStorage: {
+            getItem: key => values.has(key) ? values.get(key) : null,
+            setItem: (key, value) => values.set(key, value),
+            removeItem: key => values.delete(key)
+        },
+        location: { reload() {} }
+    };
+
+    vm.createContext(context);
+    vm.runInContext(read('js/panel.js'), context, {
+        filename: 'js/panel.js'
+    });
+
+    return { panel: context.window.P, values };
+}
+
 console.log('');
 console.log('========================================');
 console.log('      StaySmart Automated Test Suite');
@@ -270,6 +290,23 @@ test('All properties have valid statuses', () => {
     }
 });
 
+test('Every property image references an existing local asset', () => {
+
+    for (const property of seed.properties) {
+        assert.ok(
+            Array.isArray(property.images) && property.images.length > 0,
+            `Property ${property.id} has no images`
+        );
+
+        for (const image of property.images) {
+            assert.ok(
+                fs.existsSync(path.join(ROOT, image)),
+                `Property ${property.id} references missing image: ${image}`
+            );
+        }
+    }
+});
+
 
 // --------------------------------------------------
 // 8. BOOKING RELATIONSHIP TESTS
@@ -301,6 +338,67 @@ test('All bookings reference valid properties', () => {
         assert.ok(
             propertyIds.has(booking.propertyId),
             `Booking ${booking.id} has invalid propertyId`
+        );
+    }
+});
+
+test('Booking owners match property owners', () => {
+
+    for (const booking of seed.bookings) {
+        const property = seed.properties.find(
+            item => item.id === booking.propertyId
+        );
+
+        assert.ok(
+            seed.owners.some(owner => owner.id === booking.ownerId),
+            `Booking ${booking.id} has invalid ownerId`
+        );
+        assert.strictEqual(
+            booking.ownerId,
+            property.ownerId,
+            `Booking ${booking.id} owner does not own its property`
+        );
+    }
+});
+
+test('Bookings have valid statuses, dates, and totals', () => {
+
+    const validStatuses = [
+        'pending',
+        'approved',
+        'active',
+        'completed',
+        'rejected',
+        'cancelled'
+    ];
+
+    for (const booking of seed.bookings) {
+        assert.ok(
+            validStatuses.includes(booking.status),
+            `Booking ${booking.id} has invalid status: ${booking.status}`
+        );
+        assert.ok(
+            Number.isInteger(booking.months) && booking.months > 0,
+            `Booking ${booking.id} has invalid lease duration`
+        );
+        assert.match(
+            booking.start,
+            /^\d{4}-\d{2}-\d{2}$/,
+            `Booking ${booking.id} has invalid start date`
+        );
+        assert.match(
+            booking.end,
+            /^\d{4}-\d{2}-\d{2}$/,
+            `Booking ${booking.id} has invalid end date`
+        );
+        assert.ok(
+            new Date(booking.end) > new Date(booking.start),
+            `Booking ${booking.id} ends before it starts`
+        );
+        assert.strictEqual(
+            booking.total,
+            booking.rent * booking.months + booking.deposit,
+            `Booking ${booking.id} has an incorrect total`
         );
     }
 });
@@ -337,6 +435,20 @@ test('All review ratings are between 1 and 5', () => {
     }
 });
 
+test('All reviews reference valid students', () => {
+
+    const studentIds = new Set(
+        seed.students.map(student => student.id)
+    );
+
+    for (const review of seed.reviews) {
+        assert.ok(
+            studentIds.has(review.studentId),
+            `Review ${review.id} has invalid studentId`
+        );
+    }
+});
+
 
 // --------------------------------------------------
 // 10. APPLICATION BUSINESS RULE TESTS
@@ -367,6 +479,55 @@ test('All accounts use valid roles', () => {
             `Invalid account role: ${account.role}`
         );
     }
+});
+
+test('Shared UI helpers render booking statuses and escape untrusted text', () => {
+
+    const { panel } = loadPanel();
+    const statuses = [
+        'pending',
+        'approved',
+        'active',
+        'completed',
+        'rejected',
+        'cancelled'
+    ];
+
+    for (const status of statuses) {
+        assert.strictEqual(
+            panel.statusCls(status),
+            `status-${status}`,
+            `Booking status ${status} has no matching CSS class`
+        );
+        assert.ok(
+            panel.pill(status).includes(`>${status[0].toUpperCase()}${status.slice(1)}</span>`),
+            `Booking status ${status} is not displayed correctly`
+        );
+    }
+
+    assert.strictEqual(
+        panel.esc('<script>alert("x")</script>'),
+        '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;'
+    );
+});
+
+test('Shared UI helpers persist booking updates in local storage', () => {
+
+    const { panel, values } = loadPanel();
+    panel.db.bookings.push({
+        id: 9999,
+        propertyId: 1,
+        studentId: 7,
+        ownerId: 2,
+        status: 'pending'
+    });
+    panel.save();
+
+    const saved = JSON.parse(values.get('sh_db_v1'));
+    const booking = saved.bookings.find(item => item.id === 9999);
+
+    assert.ok(booking, 'Booking was not saved to local storage');
+    assert.strictEqual(booking.status, 'pending');
 });
 
 

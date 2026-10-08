@@ -26,6 +26,11 @@ These are invented demo logins. The original password hashes were NOT copied.
 ## How data works
 Everything is kept in the browser's `localStorage` (keys `sh_db_v1`, `sh_session_v1`): login, favorites, bookings, reviews, feedback, and every owner/admin action. Browsing works without logging in. Use **Reset demo data** (student menu / admin top bar) to restore the original seed.
 
+## Jenkins CI
+The `Jenkinsfile` checks out the project and runs on a Jenkins agent with PowerShell and Node.js 18 or newer. Each build verifies the required app files, syntax-checks the JavaScript, and runs `node tests/staysmart.test.js`.
+
+The automated suite checks page assets, seed data structure, demo accounts, property and booking relationships, booking statuses/dates/totals, review data, local property images, and shared UI status/escaping/storage helpers. These are static-app and Node-based checks; the pipeline does not claim browser-based end-to-end coverage or test an online backend.
+
 ## Real vs invented data
 **Real (from your SQL dump / PHP files)**
 - Properties 1–5 (Pune, Mumbai, Bangalore sample listings) and 42 (Panjari hostel, Ratnagiri): title, description, address, rent, deposit, type, beds, baths, area, occupants, amenities, rules, dates, featured flag.

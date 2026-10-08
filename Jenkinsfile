@@ -4,28 +4,36 @@ pipeline {
     options {
         timestamps()
         disableConcurrentBuilds()
+        timeout(time: 10, unit: 'MINUTES')
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Environment Check') {
+        stage('Check CI Environment') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    Write-Host "Checking Node.js..."
-                    node --version
+                    $nodeVersion = node --version
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Node.js is required on the Jenkins agent."
+                    }
 
-                    Write-Host "Checking npm..."
-                    npm --version
+                    if ($nodeVersion -notmatch '^v(\\d+)\\.') {
+                        throw "Could not parse Node.js version: $nodeVersion"
+                    }
 
-                    Write-Host "Environment check passed."
+                    $nodeMajor = [int]$Matches[1]
+                    if ($nodeMajor -lt 18) {
+                        throw "Node.js 18 or newer is required. Found: $nodeVersion"
+                    }
+
+                    Write-Host "Using Node.js $nodeVersion"
                 '''
             }
         }
@@ -37,28 +45,30 @@ pipeline {
 
                     $requiredFiles = @(
                         "index.html",
+                        "vendor.html",
+                        "admin.html",
+                        "css/style.css",
                         "js/data.js",
                         "js/panel.js",
                         "js/app.js",
                         "js/vendor.js",
                         "js/admin.js",
-                        "tests/staysmart.test.js"
+                        "tests/staysmart.test.js",
+                        "images/properties/bedroom.jpg"
                     )
 
                     foreach ($file in $requiredFiles) {
-                        if (-not (Test-Path $file)) {
-                            throw "Missing required file: $file"
+                        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                            throw "Missing required project file: $file"
                         }
 
-                        Write-Host "Found: $file"
+                        Write-Host "Verified: $file"
                     }
-
-                    Write-Host "Project structure verified."
                 '''
             }
         }
 
-        stage('JavaScript Syntax Tests') {
+        stage('JavaScript Syntax Checks') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
@@ -73,36 +83,30 @@ pipeline {
                     )
 
                     foreach ($file in $jsFiles) {
-                        Write-Host "Checking syntax: $file"
-
+                        Write-Host "Checking JavaScript syntax: $file"
                         node --check $file
 
                         if ($LASTEXITCODE -ne 0) {
-                            throw "Syntax error found in $file"
+                            throw "JavaScript syntax check failed: $file"
                         }
                     }
 
-                    Write-Host "All JavaScript syntax checks passed."
+                    Write-Host "All JavaScript files passed syntax checks."
                 '''
             }
         }
 
-        stage('Application Tests') {
+        stage('Automated Application Tests') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    Write-Host "========================================"
-                    Write-Host " Running StaySmart Test Suite"
-                    Write-Host "========================================"
-
+                    Write-Host "Running StaySmart automated tests..."
                     node tests/staysmart.test.js
 
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
-
-                    Write-Host "All application tests passed."
                 '''
             }
         }
@@ -110,15 +114,15 @@ pipeline {
 
     post {
         success {
-            echo 'StaySmart CI: ALL TESTS PASSED'
+            echo 'StaySmart CI: all checks and automated tests passed.'
         }
 
         failure {
-            echo 'StaySmart CI: TESTS FAILED'
+            echo 'StaySmart CI: a check or automated test failed. See the stage logs.'
         }
 
         always {
-            echo 'StaySmart CI: Pipeline execution completed.'
+            echo 'StaySmart CI: pipeline execution completed.'
         }
     }
 }
