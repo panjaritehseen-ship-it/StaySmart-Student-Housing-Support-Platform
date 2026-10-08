@@ -22,12 +22,41 @@ pipeline {
                     Write-Output "Checking Node.js installation..."
 
                     node --version
+                    npm --version
 
                     if ($LASTEXITCODE -ne 0) {
-                        throw "Node.js is required for the StaySmart test suite."
+                        throw "Node.js and npm are required for the StaySmart CI pipeline."
                     }
 
-                    Write-Output "Node.js is available."
+                    Write-Output "Node.js and npm are available."
+                '''
+            }
+        }
+
+        stage('Verify Project Files') {
+            steps {
+                powershell '''
+                    $ErrorActionPreference = 'Stop'
+
+                    $requiredFiles = @(
+                        'index.html',
+                        'js/data.js',
+                        'js/panel.js',
+                        'js/app.js',
+                        'js/vendor.js',
+                        'js/admin.js',
+                        'tests/staysmart.test.js'
+                    )
+
+                    foreach ($file in $requiredFiles) {
+                        if (-not (Test-Path $file)) {
+                            throw "Required project file is missing: $file"
+                        }
+
+                        Write-Output "Found: $file"
+                    }
+
+                    Write-Output "All required project files are present."
                 '''
             }
         }
@@ -78,6 +107,9 @@ pipeline {
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
+
+                    Write-Output ""
+                    Write-Output "StaySmart automated tests passed."
                 '''
             }
         }
@@ -90,6 +122,10 @@ pipeline {
 
         failure {
             echo 'StaySmart CI: TESTS FAILED'
+        }
+
+        always {
+            echo 'StaySmart CI: Pipeline execution completed.'
         }
     }
 }
