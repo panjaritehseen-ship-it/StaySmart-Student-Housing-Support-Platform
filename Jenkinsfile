@@ -19,16 +19,13 @@ pipeline {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    Write-Output "Checking Node.js installation..."
-
+                    Write-Host "Checking Node.js..."
                     node --version
+
+                    Write-Host "Checking npm..."
                     npm --version
 
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Node.js and npm are required for the StaySmart CI pipeline."
-                    }
-
-                    Write-Output "Node.js and npm are available."
+                    Write-Host "Environment check passed."
                 '''
             }
         }
@@ -39,24 +36,24 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     $requiredFiles = @(
-                        'index.html',
-                        'js/data.js',
-                        'js/panel.js',
-                        'js/app.js',
-                        'js/vendor.js',
-                        'js/admin.js',
-                        'tests/staysmart.test.js'
+                        "index.html",
+                        "js/data.js",
+                        "js/panel.js",
+                        "js/app.js",
+                        "js/vendor.js",
+                        "js/admin.js",
+                        "tests/staysmart.test.js"
                     )
 
                     foreach ($file in $requiredFiles) {
                         if (-not (Test-Path $file)) {
-                            throw "Required project file is missing: $file"
+                            throw "Missing required file: $file"
                         }
 
-                        Write-Output "Found: $file"
+                        Write-Host "Found: $file"
                     }
 
-                    Write-Output "All required project files are present."
+                    Write-Host "Project structure verified."
                 '''
             }
         }
@@ -67,26 +64,25 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     $jsFiles = @(
-                        'js/data.js',
-                        'js/panel.js',
-                        'js/app.js',
-                        'js/vendor.js',
-                        'js/admin.js',
-                        'tests/staysmart.test.js'
+                        "js/data.js",
+                        "js/panel.js",
+                        "js/app.js",
+                        "js/vendor.js",
+                        "js/admin.js",
+                        "tests/staysmart.test.js"
                     )
 
                     foreach ($file in $jsFiles) {
-
-                        Write-Output "Testing JavaScript syntax: $file"
+                        Write-Host "Checking syntax: $file"
 
                         node --check $file
 
                         if ($LASTEXITCODE -ne 0) {
-                            throw "JavaScript syntax test failed: $file"
+                            throw "Syntax error found in $file"
                         }
                     }
 
-                    Write-Output "All JavaScript syntax tests passed."
+                    Write-Host "All JavaScript syntax checks passed."
                 '''
             }
         }
@@ -96,11 +92,9 @@ pipeline {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    Write-Output ""
-                    Write-Output "========================================"
-                    Write-Output " Running StaySmart Test Suite"
-                    Write-Output "========================================"
-                    Write-Output ""
+                    Write-Host "========================================"
+                    Write-Host " Running StaySmart Test Suite"
+                    Write-Host "========================================"
 
                     node tests/staysmart.test.js
 
@@ -108,8 +102,7 @@ pipeline {
                         throw "StaySmart automated tests failed."
                     }
 
-                    Write-Output ""
-                    Write-Output "StaySmart automated tests passed."
+                    Write-Host "All application tests passed."
                 '''
             }
         }
