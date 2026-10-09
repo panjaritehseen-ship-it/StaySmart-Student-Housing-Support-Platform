@@ -66,6 +66,16 @@ node_modules, ID/property document uploads, personal/profile photos, screenshots
 ## Privacy note
 `data.js` still contains the real names, emails and phone numbers from your dump (family members and the five sample owners). Remove or mask them before hosting publicly.
 
+## Deploying
+
+No build step or backend is required for static hosting.
+Publish the project root so the HTML files remain together.
+Keep the `js/`, `css/`, and `images/` folders in their original locations.
+After deployment, open `index.html`, `vendor.html`, and `admin.html` to check each page.
+Each browser keeps its own app data in local storage.
+Clearing the site's browser storage removes locally saved changes.
+Demo credentials are public; do not use real passwords for these accounts.
+
 ## Notes
 - Icons are emoji and the layout CSS is self-contained, so the site works fully offline.
 - Ask AI is a rule-based offline assistant (city, area, type, budget, bedrooms, amenities).
