@@ -26,6 +26,16 @@ These are invented demo logins. The original password hashes were NOT copied.
 ## How data works
 Everything is kept in the browser's `localStorage` (keys `sh_db_v1`, `sh_session_v1`): login, favorites, bookings, reviews, feedback, and every owner/admin action. Browsing works without logging in. Use **Reset demo data** (student menu / admin top bar) to restore the original seed.
 
+## Running tests locally
+
+Requires Node.js 18 or newer; no package installation is needed.
+Run this command from the project root:
+```powershell
+node tests\staysmart.test.js
+```
+The suite checks project files, JavaScript syntax, seed data, and shared UI helpers.
+Exit code `0` means all tests passed; `1` means a test failed.
+
 ## Jenkins CI
 The `Jenkinsfile` checks out the project and runs on a Jenkins agent with PowerShell and Node.js 18 or newer. Each build verifies the required app files, syntax-checks the JavaScript, and runs `node tests/staysmart.test.js`.
 
