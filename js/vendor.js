@@ -52,8 +52,9 @@ function propForm(p){p=p||{};return `<div class="row2"><div><label>Title</label>
   <label>Description</label><textarea id="fDe" rows="3">${esc(p.desc||'')}</textarea>`}
 function readForm(r){const g=id=>r.querySelector(id).value;
   return {title:g('#fT').trim(),type:g('#fTy'),city:g('#fC').trim(),area:g('#fAr').trim(),address:g('#fAd').trim(),rent:+g('#fR'),deposit:+g('#fD')||0,beds:+g('#fB')||1,baths:+g('#fBa')||1,maxOcc:+g('#fO')||1,availFrom:g('#fAv')||null,desc:g('#fDe').trim(),amenities:[...r.querySelectorAll('[name=am]:checked')].map(x=>x.value)}}
+function validProperty(d){if(!d.title||!d.city||!d.address||!Number.isFinite(d.rent)||d.rent<=0){toast('Please fill title, city, address and a valid rent','err');return false}return true}
 function editProp(id){const p=prop(id);const m=modal({title:'Edit property',wide:true,body:'<div class="form-section" style="box-shadow:none;padding:0">'+propForm(p)+'</div>',foot:'<button class="btn" id="c">Cancel</button><button class="btn btn-primary" id="s">Save changes</button>',onOpen:ov=>{$('#c',ov).onclick=()=>m.close();
-  $('#s',ov).onclick=()=>{const d=readForm(ov);if(!d.title||!d.rent||!d.city)return toast('Title, city and rent are required','err');Object.assign(p,d);P.save();m.close();toast('Property updated');route()}}})}
+  $('#s',ov).onclick=()=>{const d=readForm(ov);if(!validProperty(d))return;Object.assign(p,d);P.save();m.close();toast('Property updated');route()}}})}
 let pending=[];
 function add(){pending=[];
   $('#view').innerHTML=title('Add Property')+`<div class="form-section">${propForm()}<label>Photos</label><div class="image-upload-area" id="drop"><div style="font-size:2rem">📷</div>Click to choose photos (optional – a default photo is used if none)<input type="file" id="fi" accept="image/*" multiple style="display:none"></div><div class="image-preview" id="pv"></div><button class="btn btn-success mt-3" id="sv">Publish property</button></div>`;
@@ -61,7 +62,7 @@ function add(){pending=[];
   $('#fi').onchange=e=>[...e.target.files].slice(0,5).forEach(f=>{const rd=new FileReader();rd.onload=()=>{const im=new Image();im.onload=()=>{const sc=Math.min(1,800/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*sc;c.height=im.height*sc;c.getContext('2d').drawImage(im,0,0,c.width,c.height);pending.push(c.toDataURL('image/jpeg',.7));prev()};im.src=rd.result};rd.readAsDataURL(f)});
   const prev=()=>$('#pv').innerHTML=pending.map((s,i)=>`<div class="preview-item"><img class="preview-image" src="${s}" alt=""><span class="preview-remove" data-r="${i}">×</span>${i===0?'<span class="primary-badge">Primary</span>':''}</div>`).join('')+'';
   $('#pv').onclick=e=>{if(e.target.dataset.r!==undefined){pending.splice(+e.target.dataset.r,1);prev()}};
-  $('#sv').onclick=()=>{const d=readForm($('#view'));if(!d.title||!d.rent||!d.city||!d.address)return toast('Please fill title, city, address and rent','err');
+  $('#sv').onclick=()=>{const d=readForm($('#view'));if(!validProperty(d))return;
     P.db.properties.push(Object.assign({id:P.nid(),ownerId:OID,furnished:false,utilities:false,nearby:['Bus stop','Market'],rules:{guests:'limited'},status:'available',featured:false,images:pending.length?pending.slice():['images/properties/bedroom.jpg'],captions:[],sqft:null,created:new Date().toISOString().slice(0,10),src:'demo'},d));
     P.save();toast('Property published – visible on the student site');location.hash='#properties'}}
 
