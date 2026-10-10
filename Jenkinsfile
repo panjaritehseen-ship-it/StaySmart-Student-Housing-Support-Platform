@@ -149,7 +149,7 @@ pipeline {
                     }
 
                     # Run the new container
-                    docker run -d --name staysmart -p 8080:80 staysmart:1.0
+                    docker run -d --name staysmart -p 8081:80 staysmart:1.0
 
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker deployment failed."
