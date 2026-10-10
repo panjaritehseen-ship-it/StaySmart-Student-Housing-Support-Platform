@@ -110,8 +110,59 @@ pipeline {
                 '''
             }
         }
+
+        
+        stage('Docker Build') {
+            steps {
+                powershell '''
+                    $ErrorActionPreference = 'Stop'
+
+                    docker build -t staysmart:1.0 .
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Docker image build failed."
+                    }
+
+                    Write-Output "Docker image built successfully."
+                '''
+            }
+        }
+
+        stage('Docker Deploy') {
+            steps {
+                powershell '''
+                    $ErrorActionPreference = 'Stop'
+
+                    # Remove the old container if it exists
+                    $existing = docker ps -aq --filter "name=^/staysmart$"
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Unable to check existing containers."
+                    }
+
+                    if ($existing) {
+                        docker rm -f staysmart
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Could not remove the old container."
+                        }
+                    }
+
+                    # Run the new container
+                    docker run -d --name staysmart -p 8080:80 staysmart:1.0
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Docker deployment failed."
+                    }
+
+                    Write-Output "StaySmart deployed on port 8080."
+                '''
+            }
+        }
+
     }
 
+    
     post {
         success {
             echo 'StaySmart CI: all checks and automated tests passed.'
