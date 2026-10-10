@@ -80,3 +80,8 @@ Demo credentials are public; do not use real passwords for these accounts.
 - Icons are emoji and the layout CSS is self-contained, so the site works fully offline.
 - Ask AI is a rule-based offline assistant (city, area, type, budget, bedrooms, amenities).
 - Registration, online payment and email flows from the PHP app are not part of the static demo.
+
+## Notes
+- Icons are emoji and the layout CSS is self-contained, so the site works fully offline.
+- Ask AI is a rule-based offline assistant (city, area, type, budget, bedrooms, amenities).
+- Registration, online payment and email flows from the PHP app are not part of the static demo.
