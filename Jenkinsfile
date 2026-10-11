@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -9,9 +8,7 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = 'asd10staysmart/staysmart'
-        DOCKER_TAG = 'latest'
-        LOCAL_IMAGE = 'staysmart:1.0'
+        DOCKER_IMAGE = 'asd10staysmart/staysmart:latest'
         EC2_HOST = '13.204.143.193'
     }
 
@@ -29,24 +26,19 @@ pipeline {
 
                     $nodeVersion = node --version
                     if ($LASTEXITCODE -ne 0) {
-                        throw "Node.js is not installed or unavailable."
+                        throw "Node.js is required on the Jenkins agent."
+                    }
+
+                    if ($nodeVersion -notmatch '^v(\\d+)\\.') {
+                        throw "Could not parse Node.js version: $nodeVersion"
+                    }
+
+                    $nodeMajor = [int]$Matches[1]
+                    if ($nodeMajor -lt 18) {
+                        throw "Node.js 18 or newer is required. Found: $nodeVersion"
                     }
 
                     Write-Host "Using Node.js $nodeVersion"
-
-                    $dockerVersion = docker --version
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Docker is not installed or unavailable."
-                    }
-
-                    Write-Host $dockerVersion
-
-                    $gitVersion = git --version
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Git is not installed or unavailable."
-                    }
-
-                    Write-Host $gitVersion
                 '''
             }
         }
@@ -57,23 +49,22 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     $requiredFiles = @(
-                        'index.html',
-                        'vendor.html',
-                        'admin.html',
-                        'css/style.css',
-                        'js/data.js',
-                        'js/panel.js',
-                        'js/app.js',
-                        'js/vendor.js',
-                        'js/admin.js',
-                        'tests/staysmart.test.js',
-                        'images/properties/bedroom.jpg',
-                        'Dockerfile'
+                        "index.html",
+                        "vendor.html",
+                        "admin.html",
+                        "css/style.css",
+                        "js/data.js",
+                        "js/panel.js",
+                        "js/app.js",
+                        "js/vendor.js",
+                        "js/admin.js",
+                        "tests/staysmart.test.js",
+                        "images/properties/bedroom.jpg"
                     )
 
                     foreach ($file in $requiredFiles) {
-                        if (-not (Test-Path $file -PathType Leaf)) {
-                            throw "Required file missing: $file"
+                        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                            throw "Missing required project file: $file"
                         }
 
                         Write-Host "Verified: $file"
@@ -88,18 +79,19 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     $jsFiles = @(
-                        'js/data.js',
-                        'js/panel.js',
-                        'js/app.js',
-                        'js/vendor.js',
-                        'js/admin.js',
-                        'tests/staysmart.test.js'
+                        "js/data.js",
+                        "js/panel.js",
+                        "js/app.js",
+                        "js/vendor.js",
+                        "js/admin.js",
+                        "tests/staysmart.test.js"
                     )
 
                     foreach ($file in $jsFiles) {
                         Write-Host "Checking JavaScript syntax: $file"
 
                         node --check $file
+
                         if ($LASTEXITCODE -ne 0) {
                             throw "JavaScript syntax check failed: $file"
                         }
@@ -118,11 +110,10 @@ pipeline {
                     Write-Host "Running StaySmart automated tests..."
 
                     node tests/staysmart.test.js
+
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
-
-                    Write-Host "StaySmart test suite passed."
                 '''
             }
         }
@@ -133,67 +124,62 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     docker build -t staysmart:1.0 .
+
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker image build failed."
                     }
 
                     Write-Host "Docker image built successfully."
-
-                    docker image inspect staysmart:1.0
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Built Docker image could not be verified."
-                    }
                 '''
             }
         }
 
         stage('Docker Hub Push') {
             steps {
-                catchError(
-                    buildResult: 'SUCCESS',
-                    stageResult: 'UNSTABLE'
-                ) {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'dockerhub-creds',
-                            usernameVariable: 'DOCKERHUB_USER',
-                            passwordVariable: 'DOCKERHUB_TOKEN'
-                        )
-                    ]) {
-                        powershell '''
-                            $ErrorActionPreference = 'Stop'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
 
-                            $token = $env:DOCKERHUB_TOKEN.Trim()
+                        # Remove accidental leading or trailing whitespace.
+                        $token = $env:DOCKERHUB_TOKEN.Trim()
 
-                            if ([string]::IsNullOrWhiteSpace($token)) {
-                                throw "Docker Hub token is empty."
-                            }
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "Docker Hub token is empty."
+                        }
 
-                            $token | docker login `
-                                --username $env:DOCKERHUB_USER `
-                                --password-stdin
+                        # Log in to Docker Hub without printing the token.
+                        $token | docker login `
+                            --username $env:DOCKERHUB_USER `
+                            --password-stdin
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Docker Hub login failed."
-                            }
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker Hub login failed."
+                        }
 
-                            docker tag staysmart:1.0 `
-                                "$($env:DOCKERHUB_USER)/staysmart:latest"
+                        Write-Host "Docker Hub login successful."
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Docker image tagging failed."
-                            }
+                        # Tag the image for Docker Hub.
+                        docker tag staysmart:1.0 $env:DOCKER_IMAGE
 
-                            docker push `
-                                "$($env:DOCKERHUB_USER)/staysmart:latest"
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image tagging failed."
+                        }
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Docker Hub push failed."
-                            }
+                        # Push the image to Docker Hub.
+                        docker push $env:DOCKER_IMAGE
 
-                            Write-Host "Docker Hub push completed successfully."
-                        '''
-                    }
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image push failed."
+                        }
+
+                        Write-Host "Docker image pushed successfully."
+                    '''
                 }
             }
         }
@@ -210,64 +196,21 @@ pipeline {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
-                        $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
+                        # Pull the published image and replace the application container.
+                        # Docker Hub repository is public, so EC2 does not need a login.
+                        $remoteCommand = "docker pull $env:DOCKER_IMAGE && (docker rm -f staysmart >/dev/null 2>&1 || true) && docker run -d --name staysmart --restart unless-stopped -p 80:80 $env:DOCKER_IMAGE"
 
-                        try {
-                            # Export the image built locally by Jenkins.
-                            docker save -o $imageFile staysmart:1.0
+                        ssh -i "$env:EC2_KEY" `
+                            -o StrictHostKeyChecking=accept-new `
+                            -o ConnectTimeout=15 `
+                            "$env:EC2_USER@$env:EC2_HOST" `
+                            $remoteCommand
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Failed to export the Docker image."
-                            }
-
-                            # Transfer the image directly to EC2.
-                            scp -i "$env:EC2_KEY" `
-                                -o StrictHostKeyChecking=no `
-                                $imageFile `
-                                "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
-
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Failed to transfer the image to EC2."
-                            }
-
-                            # Load and deploy the image on EC2.
-                            $deployScript = @'
-set -e
-
-sudo docker load -i /tmp/staysmart.tar
-
-sudo docker rm -f staysmart 2>/dev/null || true
-
-sudo docker run -d \
-    --name staysmart \
-    --restart unless-stopped \
-    -p 80:80 \
-    staysmart:1.0
-
-sudo docker rm -f staysmart-old 2>/dev/null || true
-sudo rm -f /tmp/staysmart.tar
-
-sudo docker ps --filter name=staysmart
-'@
-
-                            $deployScript | ssh `
-                                -i "$env:EC2_KEY" `
-                                -o StrictHostKeyChecking=no `
-                                "$($env:EC2_USER)@$($env:EC2_HOST)" `
-                                "bash -s"
-
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Deployment on EC2 failed."
-                            }
-
-                            Write-Host "StaySmart deployed successfully."
-                            Write-Host "Website: http://$($env:EC2_HOST)"
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Deployment to AWS EC2 failed."
                         }
-                        finally {
-                            if (Test-Path $imageFile) {
-                                Remove-Item $imageFile -Force
-                            }
-                        }
+
+                        Write-Host "StaySmart deployment command completed."
                     '''
                 }
             }
@@ -276,16 +219,11 @@ sudo docker ps --filter name=staysmart
 
     post {
         success {
-            echo 'StaySmart CI/CD pipeline completed successfully.'
-            echo 'Check the EC2 public IP to verify the deployed website.'
-        }
-
-        unstable {
-            echo 'Deployment pipeline completed with an unstable stage. Check Docker Hub Push logs; EC2 deployment may still have succeeded.'
+            echo 'StaySmart CI/CD: checks passed, image published, and EC2 deployment completed.'
         }
 
         failure {
-            echo 'StaySmart CI/CD failed. Check the first failed stage, especially Docker Build or Deploy to AWS EC2.'
+            echo 'StaySmart CI/CD failed. Inspect the first failed stage in the console log.'
         }
 
         always {
