@@ -160,12 +160,32 @@ function feedback(){const ok=P.db.feedback.filter(f=>['reviewed','resolved'].inc
   $('#fbGo').onclick=()=>needLogin(()=>{const t=$('#fbT').value.trim(),x=$('#fbX').value.trim();if(!t||!x)return toast('Please add a title and feedback','err');const s=sess();
     P.db.feedback.unshift({id:P.nid(),userId:s.userId,name:s.name,role:'student',rating:rate,title:t,text:x,suggestions:$('#fbG').value,status:'pending',date:new Date().toISOString().slice(0,10),src:'demo'});P.save();toast('Thank you for your feedback!');feedback()})}
 function about(){const d=P.db;
-  $('#view').innerHTML=`<h3 class="page-title">ℹ️ About StaySmart</h3><div class="card card-body mb-3"><p>StaySmart helps students find housing near their college. Browse hostel, PG, studio and apartment listings, compare prices and amenities, save favorites, and send booking requests. Students can follow each request in My Bookings as it moves from pending to approved, rejected or another booking status. Owners manage listings and requests, while admins review owner accounts and moderate platform content.</p><p class="mb-0">Contact: <b>${esc(d.settings.contact_email)}</b> · Platform commission: <b>${esc(d.settings.commission_rate)}%</b> · Minimum lease: <b>${esc(d.settings.minimum_lease_months)} months</b></p></div>
+  $('#view').innerHTML=`<h3 class="page-title">ℹ️ About StaySmart</h3>
+  <div class="card card-body mb-3">
+    <p>StaySmart is built to make student housing simpler, safer, and more transparent. We help students discover verified accommodation options near their colleges, compare prices and amenities, and book with confidence.</p>
+    <p class="mb-0">We also support property owners with an easy way to manage listings, respond to bookings, and keep every step of the rental journey organized.</p>
+  </div>
+
+  <div class="grid cols-3 mb-3">
+    <div class="card card-body">
+      <h5>Our Mission</h5>
+      <p class="mb-0">To give students a stress-free way to find comfortable housing that fits their budget, location, and lifestyle.</p>
+    </div>
+    <div class="card card-body">
+      <h5>Why Students Choose Us</h5>
+      <p class="mb-0">Simple search filters, clear pricing, trusted reviews, and direct communication with owners in one place.</p>
+    </div>
+    <div class="card card-body">
+      <h5>What We Support</h5>
+      <p class="mb-0">Hostels, PGs, shared rooms, studios, and apartments for students looking for a home away from home.</p>
+    </div>
+  </div>
+
   <div class="card card-body mb-3"><h5>Contact Us</h5><div class="grid cols-3 mt-2"><div><b>Email</b><br><a href="mailto:${esc(d.settings.contact_email)}">${esc(d.settings.contact_email)}</a></div><div><b>Phone</b><br><a href="tel:9764470286">9764470286</a></div><div><b>Location</b><br>Ratnagiri</div></div></div>
   <div class="grid cols-4 mb-3">${[['🏠',d.properties.length,'Listings'],['🏢',d.owners.length,'Owners'],['🎓',d.students.length,'Students'],['⭐',d.reviews.filter(r=>r.status==='approved').length,'Reviews']].map(([i,v,l])=>`<div class="stat-card"><div class="stat-icon">${i}</div><div class="stat-value">${v}</div><div class="stat-label">${l}</div></div>`).join('')}</div>
-  <div class="card card-body"><h5>How it works</h5><ol class="mb-0" style="padding-left:20px;line-height:2"><li>Search listings by city, area, price, accommodation type and amenities.</li><li>Review photos, house rules, amenities and student feedback on a listing.</li><li>Choose a move-in date and lease duration, then send a booking request.</li><li>Track the request in My Bookings; the owner can approve or reject it.</li><li>Share a review after your stay to help other students.</li></ol></div>
-  <div class="card card-body mt-3"><h5>Automated quality checks</h5><p>StaySmart includes a Jenkins CI pipeline for repeatable project checks. On a Windows Jenkins agent with Node.js 18 or newer, it verifies required project files, checks JavaScript syntax and runs the automated test suite.</p><p class="mb-0">The tests cover page assets, seed data and account integrity, property and booking relationships, booking dates and totals, reviews, listing images, and shared UI helpers. This is a static demo: CI does not run browser-based end-to-end tests or validate a live backend.</p></div>
-  <p class="src-note mt-3">Demo build: listings, accounts, bookings and other changes are stored in this browser (localStorage). This project does not provide live booking notifications, online payments or a connected backend. Use “Reset demo data” in the menu to restore the original data.</p>`}
+  <div class="card card-body mb-3"><h5>How it works</h5><ol class="mb-0" style="padding-left:20px;line-height:2"><li>Search listings by city, area, price, accommodation type and amenities.</li><li>Review photos, house rules, amenities and student feedback before choosing a place.</li><li>Send a booking request and track its progress in My Bookings.</li><li>Connect with the owner, confirm the stay, and leave a review after the experience.</li></ol></div>
+  <div class="card card-body"><h5>Quality & trust</h5><p>StaySmart combines practical filters, transparent pricing, and a streamlined booking flow to help students make informed decisions.</p><p class="mb-0">Platform commission: <b>${esc(d.settings.commission_rate)}%</b> · Minimum lease: <b>${esc(d.settings.minimum_lease_months)} months</b> · Support email: <b>${esc(d.settings.contact_email)}</b></p></div>
+  <p class="src-note mt-3">Demo build: listings, accounts, bookings, reviews and feedback are stored in local browser data for quick testing.</p>`}
 
 /* ---------- offline Ask AI ---------- */
 function aiParse(q){const t=q.toLowerCase(),f={};
