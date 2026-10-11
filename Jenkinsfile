@@ -6,8 +6,6 @@ pipeline {
         disableConcurrentBuilds()
         timeout(time: 20, unit: 'MINUTES')
     }
-pipeline {
-    agent any
 
     options {
         timestamps()
@@ -239,7 +237,7 @@ docker ps --filter name=staysmart
             echo 'StaySmart CI/CD pipeline execution completed.'
         }
     }
-}
+
 
 
     environment {
