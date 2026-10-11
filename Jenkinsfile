@@ -1,10 +1,16 @@
+
 pipeline {
     agent any
 
     options {
         timestamps()
         disableConcurrentBuilds()
-        timeout(time: 10, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    environment {
+        DOCKER_IMAGE = 'asd10staysmart/staysmart:latest'
+        EC2_HOST = '13.204.143.193'
     }
 
     stages {
@@ -61,7 +67,6 @@ pipeline {
                         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
                             throw "Missing required project file: $file"
                         }
-
                         Write-Host "Verified: $file"
                     }
                 '''
@@ -85,7 +90,6 @@ pipeline {
                     foreach ($file in $jsFiles) {
                         Write-Host "Checking JavaScript syntax: $file"
                         node --check $file
-
                         if ($LASTEXITCODE -ne 0) {
                             throw "JavaScript syntax check failed: $file"
                         }
@@ -103,7 +107,6 @@ pipeline {
 
                     Write-Host "Running StaySmart automated tests..."
                     node tests/staysmart.test.js
-
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
@@ -111,69 +114,101 @@ pipeline {
             }
         }
 
-        
         stage('Docker Build') {
             steps {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
                     docker build -t staysmart:1.0 .
-
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker image build failed."
                     }
 
-                    Write-Output "Docker image built successfully."
+                    Write-Host "Docker image built successfully."
                 '''
             }
         }
 
-        stage('Docker Deploy') {
+        stage('Docker Hub Push') {
             steps {
-                powershell '''
-                    $ErrorActionPreference = 'Stop'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
 
-                    # Remove the old container if it exists
-                    $existing = docker ps -aq --filter "name=^/staysmart$"
-
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Unable to check existing containers."
-                    }
-
-                    if ($existing) {
-                        docker rm -f staysmart
+                        $env:DOCKERHUB_TOKEN |
+                            docker login --username $env:DOCKERHUB_USER --password-stdin
 
                         if ($LASTEXITCODE -ne 0) {
-                            throw "Could not remove the old container."
+                            throw "Docker Hub login failed."
                         }
-                    }
 
-                    # Run the new container
-                    docker run -d --name staysmart -p 8081:80 staysmart:1.0
 
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Docker deployment failed."
-                    }
+                        docker tag staysmart:1.0 $env:DOCKER_IMAGE
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image tagging failed."
+                        }
 
-                    Write-Output "StaySmart deployed on port 8080."
-                '''
+                        docker push $env:DOCKER_IMAGE
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image push failed."
+                        }
+
+                        Write-Host "Docker image pushed successfully."
+                    '''
+                }
             }
         }
 
+        stage('Deploy to AWS EC2') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'EC2_KEY',
+                        usernameVariable: 'EC2_USER'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = 'Stop'
+
+                        # Pull the published image and replace the application container.
+                        # Docker Hub repository is public, so EC2 does not need a login.
+                        $remoteCommand = "docker pull $env:DOCKER_IMAGE && (docker rm -f staysmart >/dev/null 2>&1 || true) && docker run -d --name staysmart --restart unless-stopped -p 80:80 $env:DOCKER_IMAGE"
+
+                        ssh -i "$env:EC2_KEY" `
+                            -o StrictHostKeyChecking=accept-new `
+                            -o ConnectTimeout=15 `
+                            "$env:EC2_USER@$env:EC2_HOST" `
+                            $remoteCommand
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Deployment to AWS EC2 failed."
+                        }
+
+                        Write-Host "StaySmart deployment command completed."
+                    '''
+                }
+            }
+        }
     }
 
-    
     post {
         success {
-            echo 'StaySmart CI: all checks and automated tests passed.'
+            echo 'StaySmart CI/CD: checks passed, image published, and EC2 deployment completed.'
         }
 
         failure {
-            echo 'StaySmart CI: a check or automated test failed. See the stage logs.'
+            echo 'StaySmart CI/CD failed. Inspect the first failed stage in the console log.'
         }
 
         always {
-            echo 'StaySmart CI: pipeline execution completed.'
+            echo 'StaySmart CI/CD pipeline execution completed.'
         }
     }
 }
