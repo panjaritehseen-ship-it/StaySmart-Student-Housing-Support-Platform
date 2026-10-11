@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -9,7 +8,7 @@ pipeline {
     }
 
     environment {
-        LOCAL_IMAGE = 'staysmart:1.0'
+        DOCKER_IMAGE = 'asd10staysmart/staysmart:latest'
         EC2_HOST = '13.204.143.193'
     }
 
@@ -115,8 +114,6 @@ pipeline {
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
-
-                    Write-Host "All automated tests passed."
                 '''
             }
         }
@@ -126,7 +123,7 @@ pipeline {
                 powershell '''
                     $ErrorActionPreference = 'Stop'
 
-                    docker build -t $env:LOCAL_IMAGE .
+                    docker build -t staysmart:1.0 .
 
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker image build failed."
@@ -137,82 +134,51 @@ pipeline {
             }
         }
 
-        stage('Save Docker Image') {
-            steps {
-                powershell '''
-                    $ErrorActionPreference = 'Stop'
-
-                    $imageArchive = Join-Path $env:WORKSPACE 'staysmart.tar'
-
-                    if (Test-Path -LiteralPath $imageArchive) {
-                        Remove-Item -LiteralPath $imageArchive -Force
-                    }
-
-                    docker save -o $imageArchive $env:LOCAL_IMAGE
-
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Failed to save Docker image."
-                    }
-
-                    if (-not (Test-Path -LiteralPath $imageArchive -PathType Leaf)) {
-                        throw "Docker image archive was not created."
-                    }
-
-                    $archive = Get-Item -LiteralPath $imageArchive
-
-                    if ($archive.Length -eq 0) {
-                        throw "Docker image archive is empty."
-                    }
-
-                    Write-Host "Docker image saved successfully."
-                    Write-Host "Archive size: $($archive.Length) bytes"
-                '''
-            }
-        }
-
-        stage('Transfer Image to AWS EC2') {
+        stage('Docker Hub Push') {
             steps {
                 withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
-                        keyFileVariable: 'EC2_KEY',
-                        usernameVariable: 'EC2_USER'
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
                     )
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
-                        $imageArchive = Join-Path $env:WORKSPACE 'staysmart.tar'
-                        $remoteArchive = '/tmp/staysmart.tar'
-                        $destination = "$($env:EC2_USER)@$($env:EC2_HOST):$remoteArchive"
+                        # Remove accidental leading or trailing whitespace.
+                        $token = $env:DOCKERHUB_TOKEN.Trim()
 
-                        Write-Host "Checking SSH connection to EC2..."
-
-                        & ssh `
-                            -i "$env:EC2_KEY" `
-                            -o StrictHostKeyChecking=accept-new `
-                            -o ConnectTimeout=15 `
-                            "$($env:EC2_USER)@$($env:EC2_HOST)" `
-                            "echo EC2 connection successful"
-
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "SSH connection to EC2 failed."
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "Docker Hub token is empty."
                         }
 
-                        Write-Host "Transferring Docker image archive to EC2..."
-
-                        & scp `
-                            -i "$env:EC2_KEY" `
-                            -o StrictHostKeyChecking=accept-new `
-                            -o ConnectTimeout=15 `
-                            "$imageArchive" `
-                            $destination
+                        # Log in to Docker Hub without printing the token.
+                        $token | docker login `
+                            --username $env:DOCKERHUB_USER `
+                            --password-stdin
 
                         if ($LASTEXITCODE -ne 0) {
-                            throw "Docker image transfer to EC2 failed."
+                            throw "Docker Hub login failed."
                         }
 
-                        Write-Host "Docker image transferred successfully."
+                        Write-Host "Docker Hub login successful."
+
+                        # Tag the image for Docker Hub.
+                        docker tag staysmart:1.0 $env:DOCKER_IMAGE
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image tagging failed."
+                        }
+
+                        # Push the image to Docker Hub.
+                        docker push $env:DOCKER_IMAGE
+
+                        if ($LASTEXITCODE -ne 0) {
+                            throw "Docker image push failed."
+                        }
+
+                        Write-Host "Docker image pushed successfully."
                     '''
                 }
             }
@@ -230,36 +196,21 @@ pipeline {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
-                        # Load the transferred image and replace the old container.
-                        # Docker Hub is not required.
+                        # Pull the published image and replace the application container.
+                        # Docker Hub repository is public, so EC2 does not need a login.
+                        $remoteCommand = "docker pull $env:DOCKER_IMAGE && (docker rm -f staysmart >/dev/null 2>&1 || true) && docker run -d --name staysmart --restart unless-stopped -p 80:80 $env:DOCKER_IMAGE"
 
-                        $remoteCommand = 'docker load -i /tmp/staysmart.tar && (docker rm -f staysmart >/dev/null 2>&1 || true) && docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0'
-
-                        Write-Host "Loading image and deploying StaySmart on EC2..."
-
-                        & ssh `
-                            -i "$env:EC2_KEY" `
+                        ssh -i "$env:EC2_KEY" `
                             -o StrictHostKeyChecking=accept-new `
                             -o ConnectTimeout=15 `
-                            "$($env:EC2_USER)@$($env:EC2_HOST)" `
+                            "$env:EC2_USER@$env:EC2_HOST" `
                             $remoteCommand
 
                         if ($LASTEXITCODE -ne 0) {
                             throw "Deployment to AWS EC2 failed."
                         }
 
-                        Write-Host "StaySmart container deployment completed."
-
-                        # Remove the transferred archive after successful deployment.
-                        & ssh `
-                            -i "$env:EC2_KEY" `
-                            -o StrictHostKeyChecking=accept-new `
-                            "$($env:EC2_USER)@$($env:EC2_HOST)" `
-                            'rm -f /tmp/staysmart.tar'
-
-                        if ($LASTEXITCODE -ne 0) {
-                            Write-Warning "Deployment succeeded, but the temporary image archive could not be removed."
-                        }
+                        Write-Host "StaySmart deployment command completed."
                     '''
                 }
             }
@@ -268,7 +219,7 @@ pipeline {
 
     post {
         success {
-            echo 'StaySmart CI/CD: checks passed, Docker image built and transferred, and EC2 deployment completed.'
+            echo 'StaySmart CI/CD: checks passed, image published, and EC2 deployment completed.'
         }
 
         failure {
