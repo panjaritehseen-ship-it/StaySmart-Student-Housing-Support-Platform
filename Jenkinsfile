@@ -230,4 +230,4 @@ pipeline {
             echo 'StaySmart CI/CD pipeline execution completed.'
         }
     }
-},,, u check this jenkinsfile
+}
