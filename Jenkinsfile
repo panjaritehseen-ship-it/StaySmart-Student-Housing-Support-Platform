@@ -142,8 +142,20 @@ pipeline {
                         $ErrorActionPreference = 'Stop'
 
                         # Temporary diagnostic checks
-                        Write-Host "Docker Hub username: $env:DOCKERHUB_USER"
-                        Write-Host "Token length: $($env:DOCKERHUB_TOKEN.Length)"
+                        
+$token = $env:DOCKERHUB_TOKEN
+$sha = [System.Security.Cryptography.SHA256]::Create()
+
+try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($token)
+    $hash = $sha.ComputeHash($bytes)
+    $fingerprint = [System.BitConverter]::ToString($hash).Replace("-", "")
+    Write-Host "Jenkins token fingerprint: $fingerprint"
+}
+finally {
+    $sha.Dispose()
+}
+
 
                         # Log in to Docker Hub
                         $env:DOCKERHUB_TOKEN |
