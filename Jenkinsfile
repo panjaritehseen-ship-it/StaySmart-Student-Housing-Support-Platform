@@ -67,6 +67,7 @@ pipeline {
                         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
                             throw "Missing required project file: $file"
                         }
+
                         Write-Host "Verified: $file"
                     }
                 '''
@@ -89,7 +90,9 @@ pipeline {
 
                     foreach ($file in $jsFiles) {
                         Write-Host "Checking JavaScript syntax: $file"
+
                         node --check $file
+
                         if ($LASTEXITCODE -ne 0) {
                             throw "JavaScript syntax check failed: $file"
                         }
@@ -106,7 +109,9 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     Write-Host "Running StaySmart automated tests..."
+
                     node tests/staysmart.test.js
+
                     if ($LASTEXITCODE -ne 0) {
                         throw "StaySmart automated tests failed."
                     }
@@ -120,6 +125,7 @@ pipeline {
                     $ErrorActionPreference = 'Stop'
 
                     docker build -t staysmart:1.0 .
+
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker image build failed."
                     }
@@ -141,26 +147,34 @@ pipeline {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
-                        # Temporary diagnostic checks
-                        Write-Host "Docker Hub username: $env:DOCKERHUB_USER"
-                        Write-Host "Token length: $($env:DOCKERHUB_TOKEN.Length)"
+                        # Remove accidental leading or trailing whitespace.
+                        $token = $env:DOCKERHUB_TOKEN.Trim()
 
-                        # Log in to Docker Hub
-                        $env:DOCKERHUB_TOKEN |
-                            docker login --username $env:DOCKERHUB_USER --password-stdin
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "Docker Hub token is empty."
+                        }
+
+                        # Log in to Docker Hub without printing the token.
+                        $token | docker login `
+                            --username $env:DOCKERHUB_USER `
+                            --password-stdin
 
                         if ($LASTEXITCODE -ne 0) {
                             throw "Docker Hub login failed."
                         }
 
-                        # Tag the image for Docker Hub
+                        Write-Host "Docker Hub login successful."
+
+                        # Tag the image for Docker Hub.
                         docker tag staysmart:1.0 $env:DOCKER_IMAGE
+
                         if ($LASTEXITCODE -ne 0) {
                             throw "Docker image tagging failed."
                         }
 
-                        # Push the image
+                        # Push the image to Docker Hub.
                         docker push $env:DOCKER_IMAGE
+
                         if ($LASTEXITCODE -ne 0) {
                             throw "Docker image push failed."
                         }
