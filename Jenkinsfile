@@ -141,6 +141,11 @@ pipeline {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
+                        # Temporary diagnostic checks
+                        Write-Host "Docker Hub username: $env:DOCKERHUB_USER"
+                        Write-Host "Token length: $($env:DOCKERHUB_TOKEN.Length)"
+
+                        # Log in to Docker Hub
                         $env:DOCKERHUB_TOKEN |
                             docker login --username $env:DOCKERHUB_USER --password-stdin
 
@@ -148,12 +153,13 @@ pipeline {
                             throw "Docker Hub login failed."
                         }
 
-
+                        # Tag the image for Docker Hub
                         docker tag staysmart:1.0 $env:DOCKER_IMAGE
                         if ($LASTEXITCODE -ne 0) {
                             throw "Docker image tagging failed."
                         }
 
+                        # Push the image
                         docker push $env:DOCKER_IMAGE
                         if ($LASTEXITCODE -ne 0) {
                             throw "Docker image push failed."
