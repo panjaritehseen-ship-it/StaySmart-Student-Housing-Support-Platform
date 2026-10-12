@@ -176,6 +176,7 @@ pipeline {
 
  
  
+
 stage('Deploy to AWS EC2') {
     steps {
         withCredentials([
@@ -187,51 +188,52 @@ stage('Deploy to AWS EC2') {
         ]) {
             powershell '''
                 $ErrorActionPreference = 'Stop'
-
                 $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
                 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
                 try {
-                    # Configure SSH private-key permissions.
                     icacls "$env:EC2_KEY" /inheritance:r
                     if ($LASTEXITCODE -ne 0) {
-                        throw "Failed to configure SSH key permissions."
+                        throw "Could not configure SSH key permissions."
                     }
 
                     icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
                     if ($LASTEXITCODE -ne 0) {
-                        throw "Failed to grant Jenkins read access to SSH key."
+                        throw "Could not grant Jenkins access to SSH key."
                     }
 
-                    # Export the image built by Jenkins.
+                    # Confirm the local Docker image exists.
+                    docker image inspect staysmart:1.0
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Local image staysmart:1.0 was not found."
+                    }
+
+                    # Export the Docker image.
                     docker save -o "$imageFile" staysmart:1.0
                     if ($LASTEXITCODE -ne 0) {
                         throw "Docker image export failed."
                     }
 
                     if (!(Test-Path $imageFile)) {
-                        throw "Image archive was not created: $imageFile"
+                        throw "Docker archive was not created."
                     }
 
-                    Write-Host "Image archive created successfully."
-                    Get-Item $imageFile |
-                        Select-Object Name, Length
+                    Write-Host "Local archive:"
+                    Get-Item $imageFile | Select-Object Name, Length
 
-                    # Transfer the archive to EC2.
+                    # Copy to the EC2 user's home directory.
                     scp -i "$env:EC2_KEY" `
                         -o StrictHostKeyChecking=accept-new `
                         -o ConnectTimeout=20 `
                         "$imageFile" `
-                        "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
+                        "$($env:EC2_USER)@$($env:EC2_HOST):staysmart.tar"
 
                     if ($LASTEXITCODE -ne 0) {
-                        throw "SCP transfer to EC2 failed."
+                        throw "SCP transfer failed."
                     }
 
-                    Write-Host "Image archive transferred to EC2."
-
-                    # Use a single-line remote command to avoid BOM issues.
-                    $remoteCommand = "sudo docker load -i /tmp/staysmart.tar && (sudo docker rm -f staysmart >/dev/null 2>&1 || true) && sudo docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0 && sudo docker ps --filter name=staysmart && sudo rm -f /tmp/staysmart.tar"
+                    # Verify the file, load the image, and deploy.
+                    $remoteCommand = 'set -e; echo "Remote user: $USER"; echo "Home: $HOME"; ls -lh "$HOME/staysmart.tar"; test -s "$HOME/staysmart.tar"; sudo docker load -i "$HOME/staysmart.tar"; (sudo docker rm -f staysmart >/dev/null 2>&1 || true); sudo docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0; sudo docker ps --filter name=staysmart; sudo rm -f "$HOME/staysmart.tar"'
 
                     ssh -i "$env:EC2_KEY" `
                         -o StrictHostKeyChecking=accept-new `
@@ -240,7 +242,7 @@ stage('Deploy to AWS EC2') {
                         $remoteCommand
 
                     if ($LASTEXITCODE -ne 0) {
-                        throw "Remote deployment failed. Check the SSH/Docker output above."
+                        throw "EC2 transfer verification or deployment failed."
                     }
 
                     Write-Host "StaySmart deployment completed successfully."
@@ -254,6 +256,7 @@ stage('Deploy to AWS EC2') {
         }
     }
 }
+
   }
 
     post {
