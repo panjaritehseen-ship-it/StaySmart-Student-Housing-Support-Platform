@@ -134,109 +134,93 @@ pipeline {
             }
         }
 
+ 
         stage('Docker Hub Push') {
             steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-creds',
+                            usernameVariable: 'DOCKERHUB_USER',
+                            passwordVariable: 'DOCKERHUB_TOKEN'
+                        )
+                    ]) {
+                        powershell '''
+                            $ErrorActionPreference = 'Stop'
+                            $token = $env:DOCKERHUB_TOKEN.Trim()
+
+                            $token | docker login `
+                                --username $env:DOCKERHUB_USER `
+                                --password-stdin
+
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Docker Hub login failed."
+                            }
+
+                            docker tag staysmart:1.0 $env:DOCKER_IMAGE
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Docker image tagging failed."
+                            }
+
+                            docker push $env:DOCKER_IMAGE
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Docker image push failed."
+                            }
+
+                            Write-Host "Docker image pushed successfully."
+                        '''
+                    }
+                }
+            }
+        }
+
+ 
+        stage('Deploy to AWS EC2') {
+            steps {
                 withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKERHUB_USER',
-                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'EC2_KEY',
+                        usernameVariable: 'EC2_USER'
                     )
                 ]) {
                     powershell '''
                         $ErrorActionPreference = 'Stop'
 
-                        # Remove accidental leading or trailing whitespace.
-                        $token = $env:DOCKERHUB_TOKEN.Trim()
+                        $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
+                        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-                        if ([string]::IsNullOrWhiteSpace($token)) {
-                            throw "Docker Hub token is empty."
-                        }
+                        try {
+                            # Restrict access to Jenkins' temporary private key.
+                            icacls "$env:EC2_KEY" /inheritance:r
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Could not disable inherited SSH-key permissions."
+                            }
 
-                        # Log in to Docker Hub without printing the token.
-                        $token | docker login `
-                            --username $env:DOCKERHUB_USER `
-                            --password-stdin
+                            icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Could not grant Jenkins read access to the SSH key."
+                            }
 
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "Docker Hub login failed."
-                        }
+                            # Export the image already built by Jenkins.
+                            docker save -o "$imageFile" staysmart:1.0
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Docker image export failed."
+                            }
 
-                        Write-Host "Docker Hub login successful."
+                            # Copy the image archive to EC2.
+                            scp -i "$env:EC2_KEY" `
+                                -o StrictHostKeyChecking=accept-new `
+                                -o ConnectTimeout=15 `
+                                "$imageFile" `
+                                "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
 
-                        # Tag the image for Docker Hub.
-                        docker tag staysmart:1.0 $env:DOCKER_IMAGE
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "Image transfer to EC2 failed."
+                            }
 
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "Docker image tagging failed."
-                        }
-
-                        # Push the image to Docker Hub.
-                        docker push $env:DOCKER_IMAGE
-
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "Docker image push failed."
-                        }
-
-                        Write-Host "Docker image pushed successfully."
-                    '''
-                }
-            }
-        }
-
-        
-stage('Deploy to AWS EC2') {
-    steps {
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: 'ec2-ssh-key',
-                keyFileVariable: 'EC2_KEY',
-                usernameVariable: 'EC2_USER'
-            )
-        ]) {
-            powershell '''
-                $ErrorActionPreference = 'Stop'
-
-                $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
-                $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-
-                try {
-                    # Fix permissions on Jenkins' temporary private key.
-                    icacls "$env:EC2_KEY" /inheritance:r
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Could not disable inherited key permissions."
-                    }
-
-                    icacls "$env:EC2_KEY" /remove:g `
-                        "BUILTIN\\Users" "Everyone" "Authenticated Users"
-
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Could not remove broad key permissions."
-                    }
-
-                    icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Could not grant the Jenkins process access to the key."
-                    }
-
-                    # Build an archive from the locally built image.
-                    docker save -o $imageFile staysmart:1.0
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Docker image export failed."
-                    }
-
-                    # Transfer the image to EC2.
-                    scp -i "$env:EC2_KEY" `
-                        -o StrictHostKeyChecking=no `
-                        $imageFile `
-                        "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
-
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "Image transfer to EC2 failed."
-                    }
-
-                    # Load and start the application on EC2.
-                    $deployScript = @'
+                            # Load the image and replace the container.
+                            $remoteScript = @'
 set -e
 sudo docker load -i /tmp/staysmart.tar
 sudo docker rm -f staysmart 2>/dev/null || true
@@ -245,29 +229,29 @@ sudo docker ps --filter name=staysmart
 sudo rm -f /tmp/staysmart.tar
 '@
 
-                    $deployScript | ssh `
-                        -i "$env:EC2_KEY" `
-                        -o StrictHostKeyChecking=no `
-                        "$($env:EC2_USER)@$($env:EC2_HOST)" `
-                        "bash -s"
+                            $remoteScript | ssh `
+                                -i "$env:EC2_KEY" `
+                                -o StrictHostKeyChecking=accept-new `
+                                -o ConnectTimeout=15 `
+                                "$($env:EC2_USER)@$($env:EC2_HOST)" `
+                                "bash -s"
 
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "EC2 deployment failed."
-                    }
+                            if ($LASTEXITCODE -ne 0) {
+                                throw "EC2 deployment failed."
+                            }
 
-                    Write-Host "Deployment successful: http://$($env:EC2_HOST)"
+                            Write-Host "EC2 deployment commands completed."
+                        }
+                        finally {
+                            if (Test-Path $imageFile) {
+                                Remove-Item $imageFile -Force
+                            }
+                        }
+                    '''
                 }
-                finally {
-                    if (Test-Path $imageFile) {
-                        Remove-Item $imageFile -Force
-                    }
-                }
-            '''
+            }
         }
-    }
-}
-
-    }
+   }
 
     post {
         success {
