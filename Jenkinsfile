@@ -154,8 +154,8 @@ pipeline {
                         }
 
                         # Log in to Docker Hub without printing the token.
-                        $token | docker login `
-                            --username $env:DOCKERHUB_USER `
+                        $token | docker login 
+                            --username usernameVariable
                             --password-stdin
 
                         if ($LASTEXITCODE -ne 0) {
