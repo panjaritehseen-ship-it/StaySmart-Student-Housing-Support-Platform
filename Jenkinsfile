@@ -175,83 +175,86 @@ pipeline {
         }
 
  
-        stage('Deploy to AWS EC2') {
-            steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
-                        keyFileVariable: 'EC2_KEY',
-                        usernameVariable: 'EC2_USER'
-                    )
-                ]) {
-                    powershell '''
-                        $ErrorActionPreference = 'Stop'
+ 
+stage('Deploy to AWS EC2') {
+    steps {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: 'ec2-ssh-key',
+                keyFileVariable: 'EC2_KEY',
+                usernameVariable: 'EC2_USER'
+            )
+        ]) {
+            powershell '''
+                $ErrorActionPreference = 'Stop'
 
-                        $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
-                        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
+                $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-                        try {
-                            # Restrict access to Jenkins' temporary private key.
-                            icacls "$env:EC2_KEY" /inheritance:r
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Could not disable inherited SSH-key permissions."
-                            }
+                try {
+                    # Configure SSH private-key permissions.
+                    icacls "$env:EC2_KEY" /inheritance:r
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Failed to configure SSH key permissions."
+                    }
 
-                            icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Could not grant Jenkins read access to the SSH key."
-                            }
+                    icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Failed to grant Jenkins read access to SSH key."
+                    }
 
-                            # Export the image already built by Jenkins.
-                            docker save -o "$imageFile" staysmart:1.0
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Docker image export failed."
-                            }
+                    # Export the image built by Jenkins.
+                    docker save -o "$imageFile" staysmart:1.0
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Docker image export failed."
+                    }
 
-                            # Copy the image archive to EC2.
-                            scp -i "$env:EC2_KEY" `
-                                -o StrictHostKeyChecking=accept-new `
-                                -o ConnectTimeout=15 `
-                                "$imageFile" `
-                                "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
+                    if (!(Test-Path $imageFile)) {
+                        throw "Image archive was not created: $imageFile"
+                    }
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "Image transfer to EC2 failed."
-                            }
+                    Write-Host "Image archive created successfully."
+                    Get-Item $imageFile |
+                        Select-Object Name, Length
 
-                            # Load the image and replace the container.
-                            $remoteScript = @'
-set -e
-sudo docker load -i /tmp/staysmart.tar
-sudo docker rm -f staysmart 2>/dev/null || true
-sudo docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0
-sudo docker ps --filter name=staysmart
-sudo rm -f /tmp/staysmart.tar
-'@
+                    # Transfer the archive to EC2.
+                    scp -i "$env:EC2_KEY" `
+                        -o StrictHostKeyChecking=accept-new `
+                        -o ConnectTimeout=20 `
+                        "$imageFile" `
+                        "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
 
-                            $remoteScript | ssh `
-                                -i "$env:EC2_KEY" `
-                                -o StrictHostKeyChecking=accept-new `
-                                -o ConnectTimeout=15 `
-                                "$($env:EC2_USER)@$($env:EC2_HOST)" `
-                                "bash -s"
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "SCP transfer to EC2 failed."
+                    }
 
-                            if ($LASTEXITCODE -ne 0) {
-                                throw "EC2 deployment failed."
-                            }
+                    Write-Host "Image archive transferred to EC2."
 
-                            Write-Host "EC2 deployment commands completed."
-                        }
-                        finally {
-                            if (Test-Path $imageFile) {
-                                Remove-Item $imageFile -Force
-                            }
-                        }
-                    '''
+                    # Use a single-line remote command to avoid BOM issues.
+                    $remoteCommand = "sudo docker load -i /tmp/staysmart.tar && (sudo docker rm -f staysmart >/dev/null 2>&1 || true) && sudo docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0 && sudo docker ps --filter name=staysmart && sudo rm -f /tmp/staysmart.tar"
+
+                    ssh -i "$env:EC2_KEY" `
+                        -o StrictHostKeyChecking=accept-new `
+                        -o ConnectTimeout=20 `
+                        "$($env:EC2_USER)@$($env:EC2_HOST)" `
+                        $remoteCommand
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Remote deployment failed. Check the SSH/Docker output above."
+                    }
+
+                    Write-Host "StaySmart deployment completed successfully."
                 }
-            }
+                finally {
+                    if (Test-Path $imageFile) {
+                        Remove-Item $imageFile -Force
+                    }
+                }
+            '''
         }
-   }
+    }
+}
+  }
 
     post {
         success {
