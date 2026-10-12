@@ -184,37 +184,88 @@ pipeline {
             }
         }
 
-        stage('Deploy to AWS EC2') {
-            steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
-                        keyFileVariable: 'EC2_KEY',
-                        usernameVariable: 'EC2_USER'
-                    )
-                ]) {
-                    powershell '''
-                        $ErrorActionPreference = 'Stop'
 
-                        # Pull the published image and replace the application container.
-                        # Docker Hub repository is public, so EC2 does not need a login.
-                        $remoteCommand = "docker pull $env:DOCKER_IMAGE && (docker rm -f staysmart >/dev/null 2>&1 || true) && docker run -d --name staysmart --restart unless-stopped -p 80:80 $env:DOCKER_IMAGE"
+stage('Deploy to AWS EC2') {
+    steps {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: 'ec2-ssh-key',
+                keyFileVariable: 'EC2_KEY',
+                usernameVariable: 'EC2_USER'
+            )
+        ]) {
+            powershell '''
+                $ErrorActionPreference = 'Stop'
 
-                        ssh -i "$env:EC2_KEY" `
-                            -o StrictHostKeyChecking=accept-new `
-                            -o ConnectTimeout=15 `
-                            "$env:EC2_USER@$env:EC2_HOST" `
-                            $remoteCommand
+                $imageFile = Join-Path $env:WORKSPACE 'staysmart.tar'
+                $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-                        if ($LASTEXITCODE -ne 0) {
-                            throw "Deployment to AWS EC2 failed."
-                        }
+                try {
+                    # Fix permissions on Jenkins' temporary private key.
+                    icacls "$env:EC2_KEY" /inheritance:r
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Could not disable inherited key permissions."
+                    }
 
-                        Write-Host "StaySmart deployment command completed."
-                    '''
+                    icacls "$env:EC2_KEY" /remove:g `
+                        "BUILTIN\\Users" "Everyone" "Authenticated Users"
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Could not remove broad key permissions."
+                    }
+
+                    icacls "$env:EC2_KEY" /grant:r "$($identity):(R)"
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Could not grant the Jenkins process access to the key."
+                    }
+
+                    # Build an archive from the locally built image.
+                    docker save -o $imageFile staysmart:1.0
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Docker image export failed."
+                    }
+
+                    # Transfer the image to EC2.
+                    scp -i "$env:EC2_KEY" `
+                        -o StrictHostKeyChecking=no `
+                        $imageFile `
+                        "$($env:EC2_USER)@$($env:EC2_HOST):/tmp/staysmart.tar"
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Image transfer to EC2 failed."
+                    }
+
+                    # Load and start the application on EC2.
+                    $deployScript = @'
+set -e
+sudo docker load -i /tmp/staysmart.tar
+sudo docker rm -f staysmart 2>/dev/null || true
+sudo docker run -d --name staysmart --restart unless-stopped -p 80:80 staysmart:1.0
+sudo docker ps --filter name=staysmart
+sudo rm -f /tmp/staysmart.tar
+'@
+
+                    $deployScript | ssh `
+                        -i "$env:EC2_KEY" `
+                        -o StrictHostKeyChecking=no `
+                        "$($env:EC2_USER)@$($env:EC2_HOST)" `
+                        "bash -s"
+
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "EC2 deployment failed."
+                    }
+
+                    Write-Host "Deployment successful: http://$($env:EC2_HOST)"
                 }
-            }
+                finally {
+                    if (Test-Path $imageFile) {
+                        Remove-Item $imageFile -Force
+                    }
+                }
+            '''
         }
+    }
+}
     }
 
     post {
